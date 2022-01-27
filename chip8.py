@@ -14,9 +14,10 @@ FPS = 60
 
 TICKS_PER_UPDATE = 10
 
-SCREEN_WIDTH = 64 # IDEA: multiply this number by 2 to get double width then put your CPU viewer on the right!
-SCREEN_HEIGHT = 32
+SCREEN_WIDTH = 64 * 3 # IDEA: multiply this number by 2 to get double width then put your CPU viewer on the right!
+SCREEN_HEIGHT = 32 * 3
 
+# something about these colors makes collision detection work, changing them and we're screwed. (5 off, 1 on)
 SCREEN_COLOR_OFF = 5
 SCREEN_COLOR_ON = 1
 
@@ -386,7 +387,7 @@ class Chip8VM:
                     screenPix = pyxel.pget(xPos + col, yPos + row)
 
                     if spritePix:
-                        if screenPix == 0x1:
+                        if screenPix == SCREEN_COLOR_ON:
                             self.V[0xF] = 1
                         # Simulate XOR logic with this crap (since we don't have access to raw pixel data)
                         currentScreenPixel = pyxel.pget(xPos + col, yPos + row)
