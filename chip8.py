@@ -4,6 +4,7 @@ import io
 import json
 import pyxel
 import random
+import math
 
 # https://tobiasvl.github.io/blog/write-a-chip-8-emulator/
 # https://austinmorlan.com/posts/chip8_emulator/#the-instructions
@@ -12,14 +13,24 @@ import random
 # Test ROM source: https://github.com/corax89/chip8-test-rom/blob/master/test_opcode.8o
 FPS = 60
 
-TICKS_PER_UPDATE = 10
+BANNER_MSG = "Chip 8 - Pyxelized - by deckarep - 2022"
 
-SCREEN_WIDTH = 64 * 3 # IDEA: multiply this number by 2 to get double width then put your CPU viewer on the right!
-SCREEN_HEIGHT = 32 * 3
+TICKS_PER_UPDATE = 7
+
+CHIP8_WIDTH = 64
+CHIP8_HEIGHT = 32
+
+MAX_STALLED_VM_CYCLES = 100
+
+SCREEN_WIDTH = CHIP8_WIDTH * 3 # IDEA: multiply this number by 2 to get double width then put your CPU viewer on the right!
+SCREEN_HEIGHT = CHIP8_HEIGHT * 3
+
+CHIP8_X_OFFSET = SCREEN_WIDTH // 2 - CHIP8_WIDTH // 2
+CHIP8_Y_OFFSET = (SCREEN_HEIGHT // 2 - CHIP8_HEIGHT // 2) - 20
 
 # something about these colors makes collision detection work, changing them and we're screwed. (5 off, 1 on)
-SCREEN_COLOR_OFF = 5
-SCREEN_COLOR_ON = 1
+SCREEN_COLOR_OFF = 0
+SCREEN_COLOR_ON = 3
 
 ROM_STARTING_ADDRESS = 0x200
 FONT_STARTING_ADDRESS = 0x50
@@ -62,6 +73,10 @@ FONT_BYTE_SIZE = 5
 
 class Chip8VM:
     def __init__(self):
+        self.last_opcode = 0
+        self.opcode_repeat_count = 0
+
+        self.banner_x = SCREEN_WIDTH
         pyxel.init(SCREEN_WIDTH, SCREEN_HEIGHT, title="Chip8 Pyxelized", fps=FPS)
         self.reset_vm()
         #pyxel.image(0).load(0, 0, "assets/pyxel_logo_38x16.png")
@@ -96,8 +111,22 @@ class Chip8VM:
 
         if self.sound > 0:
             self.sound -=1
+
+        self.banner_x -=0.2
+        if self.banner_x < -200:
+            self.banner_x = SCREEN_WIDTH
     def draw(self):
-        pass
+        pyxel.rectb(CHIP8_X_OFFSET-2, CHIP8_Y_OFFSET-2, 68, 36, 11)
+        pyxel.rect(0, 85, SCREEN_WIDTH, SCREEN_HEIGHT, 0)
+
+        # for i, c in enumerate(BANNER_MSG):
+        #     char_offset = i + 1
+        #     pyxel.text(self.banner_x + (char_offset * 4),
+        #         SCREEN_HEIGHT-8 + math.sin(pyxel.frame_count % char_offset/50) * 1.4, c,
+        #         int((math.sin(pyxel.frame_count/100) * 20)) % 16)
+
+        pyxel.text(2, 88, "ball Y (v7)=" + str(self.V[0x7]), 7)
+        #pyxel.text(self.banner_x+1, SCREEN_HEIGHT-8, "Chip 8 - Pyxelized - by deckarep - 2022", 0)
         # TODO: if cls or draw OP occured, we know to blit the video ram to the screen.
         # Currently, we're drawing to the screen directly, but we should be blitting once and awhile only if needed.
         
@@ -158,9 +187,14 @@ class Chip8VM:
 
     # Performs one cycle.
     def tick(self):
-        #if pyxel.btnp(pyxel.KEY_Q):
-        #    pyxel.quit()
-        
+        self.check_keys()
+
+        inst = self.fetch()
+        self.decode_and_execute(inst)
+
+        self.check_stalled()
+
+    def check_keys(self):
         # record button pressed keystates
         if pyxel.btnp(pyxel.KEY_X):
             self.keypad[0] = 1
@@ -229,8 +263,17 @@ class Chip8VM:
         if pyxel.btnr(pyxel.KEY_V):
             self.keypad[0xF] = 0
 
-        inst = self.fetch()
-        self.decode_and_execute(inst)
+    def check_stalled(self):
+        if self.opcode_repeat_count > MAX_STALLED_VM_CYCLES:
+            self.opcode_repeat_count = 0
+            self.last_opcode = 0
+            self.reset_vm()
+
+        if self.PC == self.last_opcode:
+            self.opcode_repeat_count +=1
+        else:
+            self.opcode_repeat_count = 0
+        self.last_opcode = self.PC
 
     def fetch(self):
         inst_16_bit = self.memory[self.PC] << 8 | self.memory[self.PC+1]
@@ -339,11 +382,13 @@ class Chip8VM:
                     self.V[0xF] = 1
                 else:
                     self.V[0xF] = 0
-                
+
                 num = self.V[vy] - self.V[vx]
+
+                # In Python must handle simulate byte-sized math to prevent negative numbers.
                 if self.V[0xF] == 0:
                     num = 256 - abs(num)
-                #assert num >= 0, "We got a negative on instruction 0x8XY7"
+
                 self.V[vx] = num
             elif inst_subcategory == 0xE:
                 #print("inst: shift left - ambiguous")
@@ -376,8 +421,8 @@ class Chip8VM:
             height = (inst & 0xF)
 
             # Modulus ensures we handle "wrap-around" drawing.
-            xPos = self.V[vx] % SCREEN_WIDTH
-            yPos = self.V[vy] % SCREEN_HEIGHT
+            xPos = (self.V[vx] % CHIP8_WIDTH) + CHIP8_X_OFFSET
+            yPos = (self.V[vy] % CHIP8_HEIGHT) + CHIP8_Y_OFFSET
             self.V[0xF] = 0
             
             for row in range(height):
