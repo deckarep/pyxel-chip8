@@ -1,0 +1,228 @@
+import pdb
+import io
+import json
+import pyxel
+import random
+
+# https://tobiasvl.github.io/blog/write-a-chip-8-emulator/
+# https://austinmorlan.com/posts/chip8_emulator/#the-instructions
+
+SCREEN_WIDTH = 64
+SCREEN_HEIGHT = 32
+
+SCREEN_COLOR_OFF = 5
+SCREEN_COLOR_ON = 1
+
+ROM_STARTING_ADDRESS = 0x200
+FONT_STARTING_ADDRESS = 0x50
+
+VM_INSTRUCTIONS_PER_SECOND = 700
+VM_ROMS_FOLDER = "roms/"
+VM_MEMORY_SIZE = 4096
+
+FONT_DATA = [
+    0xF0, 0x90, 0x90, 0x90, 0xF0, # 0
+    0x20, 0x60, 0x20, 0x20, 0x70, # 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, # 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, # 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, # 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, # 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, # 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, # 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, # 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, # 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, # A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, # B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, # C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, # D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, # E
+    0xF0, 0x80, 0xF0, 0x80, 0x80  # F
+]
+
+class Chip8VM:
+    def __init__(self):
+        # program counter to the current instruction in memory. (12 bits addressable)
+        self.PC = ROM_STARTING_ADDRESS
+        # 16-bit register to point to locations in mem. (12 bits addressable)
+        self.I = 0
+        self.stack = []
+        # 8-bit delay timer.
+        self.delay = 0
+        # 8-bit sound timer.
+        self.sound = 0
+
+        # 16 8-bit general purpose registers. (V0-VF where VF is a flag register)
+        self.V = [0] * 16
+        
+        # 4kb (4096 bytes to be exact), memory must be writable.
+        # Load ROM's (which can self modify technically) into address 0x200.
+        self.memory = [0] * VM_MEMORY_SIZE
+
+        pyxel.init(SCREEN_WIDTH, SCREEN_HEIGHT, title="Hello Pyxel")
+        #pyxel.image(0).load(0, 0, "assets/pyxel_logo_38x16.png")
+        self.start()
+
+    def start(self):
+        self.install_fonts()
+        self.load_rom("roms/IBM Logo.ch8")
+        pyxel.run(self.update, self.draw)
+
+    def stop(self):
+        pass
+
+    def update(self):
+        if pyxel.btnp(pyxel.KEY_Q):
+            pyxel.quit()
+
+        if self.delay > 0:
+            self.delay -=1
+
+        if self.sound > 0:
+            self.sound -=1
+
+        self.tick()
+
+    def draw(self):
+        pass
+        #for (m, x) in enumerate(self.data["foo"]):
+        #    pyxel.text(20, 41 + (m * 15), x, pyxel.frame_count % 16)
+        #pdb.set_trace()
+        #pyxel.cls(0)
+        #for i in range(100):
+        #    pyxel.pset(random.randint(0,160), random.randint(0,120), random.randint(0,15))
+        #pyxel.text(55, 41, "Hello, Pyxel!", pyxel.frame_count % 16)
+        #pyxel.blt(61, 66, 0, 0, 0, 38, 16)
+
+    # Resets the entire Chip8 VM state.
+    def reset_vm(self):
+        pass
+
+    def install_fonts(self):
+        for i, b in enumerate(FONT_DATA):
+            self.memory[FONT_STARTING_ADDRESS + i] = b
+    
+    # Loads a rom from disk into memory at the appropriate offset.
+    def load_rom(self, rom_file):
+        with io.open(rom_file, 'rb') as f:
+            rom_data = f.read()
+            counter = 0
+            for b in rom_data:
+                self.memory[ROM_STARTING_ADDRESS + counter] = b
+                counter +=1
+
+    # Performs one cycle.
+    def tick(self):
+        inst = self.fetch()
+        self.decode_and_execute(inst)
+
+    def fetch(self):
+        inst_16_bit = self.memory[self.PC] << 8 | self.memory[self.PC+1]
+        self.PC = self.PC + 2
+        return inst_16_bit
+
+    def push(self, val):
+        self.stack.append(val)
+
+    def pop(self):
+        self.stack.pop()
+
+    def decode_and_execute(self, inst):
+        inst_category = inst & 0xF000
+        if inst_category == 0x0000:
+            if inst == 0x00E0:
+                # clear screen
+                print("inst: clear screen")
+                pyxel.cls(SCREEN_COLOR_OFF)
+            elif inst == 0x00EE:
+                print("inst: return from sub")
+                return_addr = self.pop()
+                self.PC = return_addr
+        elif inst_category == 0x1000:
+            #print("inst: jump")
+            self.PC = inst & 0x0FFF
+        elif inst_category == 0x2000:
+            print("inst: call subroutine")
+            self.push(self.PC)
+            self.PC = inst & 0xFFF
+        elif inst_category == 0x3000:
+            if self.V[(inst & 0x0F00) >> 8] == inst & 0x0FF:
+                print("inst: if VX == NN skip 1 instruction")
+                self.PC = self.PC + 2
+        elif inst_category == 0x4000:
+            if self.V[(inst & 0x0F00) >> 8] != inst & 0x0FF:
+                print("inst: if VX != NN skip 1 instruction")
+                self.PC = self.PC + 2
+        elif inst_category == 0x5000:
+            if self.V[(inst & 0x0F00) >> 8] == self.V[(inst & 0x00F0) >> 4]:
+                print("inst: if VX == VY skip 1 instruction")
+                self.PC = self.PC + 2
+        elif inst_category == 0x6000:
+            self.V[(inst & 0x0F00) >> 8] = inst & 0x00FF
+            print("inst: set register VX to the value NN")
+        elif inst_category == 0x7000:
+            print("inst: add value to register VX")
+            self.V[(inst & 0x0F00) >> 8] += inst & 0x00FF
+        elif inst_category == 0x8000:
+            print("inst: set/or/and/xor/add arithmetic")
+            inst_subcategory = inst & 0x000F
+            if inst_subcategory == 0:
+                self.V[(inst & 0x0F00) >> 8] = self.V[(inst & 0x00F0) >> 4]
+            elif inst_subcategory == 1:
+                self.V[(inst & 0x0F00) >> 8] = self.V[(inst & 0x0F00) >> 8] | self.V[(inst & 0x00F0) >> 4]
+            elif inst_subcategory == 2:
+                self.V[(inst & 0x0F00) >> 8] = self.V[(inst & 0x0F00) >> 8] & self.V[(inst & 0x00F0) >> 4]
+            elif inst_subcategory == 3:
+                self.V[(inst & 0x0F00) >> 8] = self.V[(inst & 0x0F00) >> 8] ^ self.V[(inst & 0x00F0) >> 4]
+            elif inst_subcategory == 4:
+                self.V[(inst & 0x0F00) >> 8] = self.V[(inst & 0x0F00) >> 8] + self.V[(inst & 0x00F0) >> 4]
+                # This instruction handles overflow.
+                if self.V[(inst & 0x0F00) >> 8] > 255:
+                    self.V[0xF] = 1
+                else:
+                    self.V[0xF] = 0
+            elif inst_subcategory == 5:
+                self.V[(inst & 0x0F00) >> 8] = self.V[(inst & 0x0F00) >> 8] - self.V[(inst & 0x00F0) >> 4]
+                # TODO: handle weird underflow logic bruh!!!
+            elif inst_subcategory == 6:
+                pass
+        elif inst_category == 0x9000:
+            if self.V[(inst & 0x0F00) >> 8] != self.V[(inst & 0x00F0) >> 4]:
+                print("inst: if VX != VY skip 1 instruction")
+                self.PC = self.PC + 2
+        elif inst_category == 0xA000:
+            self.I = inst & 0x0FFF
+            print("inst: set register I to the value NNN")
+        elif inst_category == 0xB000:
+            print("inst: jump to offset: ambiguous instruction utilizing primary implementation")
+            self.PC = self.V[0x0] + (inst & 0x0FFF)
+        elif inst_category == 0xC000:
+            print("inst: random")
+            self.V[(inst & 0x0F00) >> 8] = random.randint(0, 100) & (inst & 0x0FF)
+        elif inst_category == 0xD000:
+            print("inst: display/draw")
+            vX = (inst & 0xF00) >> 8
+            vY = (inst & 0xF0) >> 4
+            height = (inst & 0xF)
+
+            # Modulus ensures we handle "wrap-around" drawing.
+            xPos = self.V[vX] % SCREEN_WIDTH
+            yPos = self.V[vY] % SCREEN_HEIGHT
+            self.V[0xF] = 0
+            
+            for row in range(height):
+                spriteByte = self.memory[self.I + row]
+                for col in range(8):
+                    spritePix = spriteByte & (0x80 >> col)
+                    screenPix = pyxel.pget(xPos + col, yPos + row)
+
+                    if spritePix:
+                        if screenPix == 0xF:
+                            self.V[0xF] = 0
+                        pyxel.pset(xPos + col, yPos + row, SCREEN_COLOR_ON)
+
+        elif inst_category == 0xE000:
+            print("inst: ??")
+        elif inst_category == 0xF000:
+            print("inst: ??")
+
+Chip8VM()
