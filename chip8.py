@@ -394,7 +394,7 @@ class Chip8VM:
                 nxt(inst)
                 # if we got here instruction should have been handled so return.
                 return
-            if 'N' in nxt:
+            elif 'N' in nxt:
                 #print('n found')
                 nxt = nxt['N']
             elif 'X' in nxt:
@@ -608,39 +608,15 @@ class Chip8VM:
     def op_FX0A(self, inst):
         #pdb.set_trace()
         vx = (inst & 0x0F00) >> 8
-        if self.keypad[0]:
-            self.V[vx] = 0
-        elif self.keypad[1]:
-            self.V[vx] = 1
-        elif self.keypad[2]:
-            self.V[vx] = 2
-        elif self.keypad[3]:
-            self.V[vx] = 3
-        elif self.keypad[4]:
-            self.V[vx] = 4
-        elif self.keypad[5]:
-            self.V[vx] = 5
-        elif self.keypad[6]:
-            self.V[vx] = 6
-        elif self.keypad[7]:
-            self.V[vx] = 7
-        elif self.keypad[8]:
-            self.V[vx] = 8
-        elif self.keypad[9]:
-            self.V[vx] = 9
-        elif self.keypad[10]:
-            self.V[vx] = 10
-        elif self.keypad[11]:
-            self.V[vx] = 11
-        elif self.keypad[12]:
-            self.V[vx] = 12
-        elif self.keypad[13]:
-            self.V[vx] = 13
-        elif self.keypad[14]:
-            self.V[vx] = 14
-        elif self.keypad[15]:
-            self.V[vx] = 15
-        else:
+        
+        wait_for_key = True
+        for n in range(16):
+            if self.keypad[n]:
+                self.V[vx] = n
+                # we got a key scan, no need to wait.
+                wait_for_key = False
+        
+        if wait_for_key:
             self.PC -= 2
 
     def op_FX15(self, inst):
