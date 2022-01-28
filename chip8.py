@@ -134,6 +134,7 @@ class Chip8VM:
         self.banner_x -=0.2
         if self.banner_x < -200:
             self.banner_x = SCREEN_WIDTH
+
     def draw(self):
         pyxel.rectb(CHIP8_X_OFFSET-2, CHIP8_Y_OFFSET-2, 68, 36, 11)
         pyxel.rect(0, 85, SCREEN_WIDTH, SCREEN_HEIGHT, 0)
@@ -185,6 +186,7 @@ class Chip8VM:
         self.memory = [0] * VM_MEMORY_SIZE
 
         self.install_fonts()
+
         #self.load_rom("roms/IBM Logo.ch8")
         #self.load_rom("roms/bc_test.ch8") #Passing
         self.load_rom("roms/brix.rom")
