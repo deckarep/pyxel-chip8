@@ -97,6 +97,7 @@ class Chip8VM:
 
         self.banner_x = SCREEN_WIDTH
         pyxel.init(SCREEN_WIDTH, SCREEN_HEIGHT, title="Chip8 Pyxelized", fps=FPS)
+        self.setup_dispatch_tables()
         self.reset_vm()
         #pyxel.image(0).load(0, 0, "assets/pyxel_logo_38x16.png")
         pyxel.load("chip8.pyxres")
@@ -106,6 +107,36 @@ class Chip8VM:
         # TODO: figure out sound resources and playing a sound effect.
         pyxel.sound(0)
         pyxel.run(self.update, self.draw)
+
+    # Resets the entire Chip8 VM state.
+    def reset_vm(self):
+        # program counter to the current instruction in memory. (12 bits addressable)
+        self.PC = ROM_STARTING_ADDRESS
+        # 16-bit register to point to locations in mem. (12 bits addressable)
+        self.I = 0
+        self.stack = []
+        # 8-bit delay timer.
+        self.delay = 0
+        # 8-bit sound timer.
+        self.sound = 0
+
+        # Keypad state an array of 8-bit vals.
+        self.keypad = [0] * 16
+
+        # 16 8-bit general purpose registers. (V0-VF where VF is a flag register)
+        self.V = [0] * 16
+
+        # 4kb (4096 bytes to be exact), memory must be writable.
+        # Load ROM's (which can self modify technically) into address 0x200.
+        self.memory = [0] * VM_MEMORY_SIZE
+
+        self.install_fonts()
+
+        #self.load_rom("roms/IBM Logo.ch8")
+        #self.load_rom("roms/bc_test.ch8") #Passing
+        self.load_rom("roms/brix.rom")
+
+        pyxel.cls(SCREEN_COLOR_OFF)
 
     def reg(self):
         print("v0-vf -> " + str(self.V))
@@ -149,49 +180,6 @@ class Chip8VM:
         #pyxel.text(self.banner_x+1, SCREEN_HEIGHT-8, "Chip 8 - Pyxelized - by deckarep - 2022", 0)
         # TODO: if cls or draw OP occured, we know to blit the video ram to the screen.
         # Currently, we're drawing to the screen directly, but we should be blitting once and awhile only if needed.
-        
-        # TODO: if we want to show rendered text, we need to fix the problem above.
-        #for x in range(0xF):
-        #    pyxel.text(5, 38 + (x * 8), "v" + str(x) + "=" + hex(self.V[x]), 7)
-        
-        #for (m, x) in enumerate(self.data["foo"]):
-        #    pyxel.text(20, 41 + (m * 15), x, pyxel.frame_count % 16)
-        #pdb.set_trace()
-        #pyxel.cls(0)
-        #for i in range(100):
-        #    pyxel.pset(random.randint(0,160), random.randint(0,120), random.randint(0,15))
-        #pyxel.text(55, 41, "Hello, Pyxel!", pyxel.frame_count % 16)
-        #pyxel.blt(61, 66, 0, 0, 0, 38, 16)
-
-    # Resets the entire Chip8 VM state.
-    def reset_vm(self):
-        # program counter to the current instruction in memory. (12 bits addressable)
-        self.PC = ROM_STARTING_ADDRESS
-        # 16-bit register to point to locations in mem. (12 bits addressable)
-        self.I = 0
-        self.stack = []
-        # 8-bit delay timer.
-        self.delay = 0
-        # 8-bit sound timer.
-        self.sound = 0
-
-        # Keypad state an array of 8-bit vals.
-        self.keypad = [0] * 16
-
-        # 16 8-bit general purpose registers. (V0-VF where VF is a flag register)
-        self.V = [0] * 16
-        
-        # 4kb (4096 bytes to be exact), memory must be writable.
-        # Load ROM's (which can self modify technically) into address 0x200.
-        self.memory = [0] * VM_MEMORY_SIZE
-
-        self.install_fonts()
-
-        #self.load_rom("roms/IBM Logo.ch8")
-        #self.load_rom("roms/bc_test.ch8") #Passing
-        self.load_rom("roms/brix.rom")
-
-        pyxel.cls(SCREEN_COLOR_OFF)
 
     def install_fonts(self):
         for i, b in enumerate(FONT_DATA):
@@ -245,44 +233,205 @@ class Chip8VM:
         assert (result is not None), "oh no! we popped a None!"
         return result
 
+    def setup_dispatch_tables(self):
+        self.inst_dfa_tree = {
+            '0' : {
+                '0' : {
+                    'E': {
+                        '0': self.op_cls,
+                        'E': self.op_return
+                    }
+                }
+            },
+            '1' : {
+                'N' : {
+                    'N': {
+                        'N': self.op_jump
+                    }
+                }
+            },
+            '2' : {
+                'N' : {
+                    'N': {
+                        'N': self.op_call
+                    }
+                }
+            },
+            '3' : {
+                'X': {
+                    'N': {
+                        'N': self.op_skip_eq
+                    }
+                }
+            },
+            '4' : {
+                'X': {
+                    'N': {
+                        'N': self.op_skip_not_eq
+                    }
+                }
+            },
+            '5' : {
+                'X': {
+                    'Y': {
+                        '0': self.op_skip_eq_vy
+                    }
+                }
+            },
+            '6' : {
+                'X': {
+                    'N': {
+                        'N': self.op_set_vx
+                    }
+                }
+            },
+            'D' : {
+                'X': {
+                    'Y': {
+                        'N': self.op_draw
+                    }
+                }
+            }
+        }
+
+    def op_cls(self, inst):
+        pyxel.cls(SCREEN_COLOR_OFF)
+
+    def op_jump(self, inst):
+        self.PC = inst & 0x0FFF
+
+    def op_return(self, inst):
+        self.PC = self.pop()
+
+    def op_call(self, inst):
+        self.push(self.PC)
+        self.PC = inst & 0xFFF
+
+    def op_draw(self, inst):
+        vx = (inst & 0xF00) >> 8
+        vy = (inst & 0xF0) >> 4
+        height = (inst & 0xF)
+
+        # Modulus ensures we handle "wrap-around" drawing.
+        xPos = (self.V[vx] % CHIP8_WIDTH) + CHIP8_X_OFFSET
+        yPos = (self.V[vy] % CHIP8_HEIGHT) + CHIP8_Y_OFFSET
+        self.V[0xF] = 0
+
+        for row in range(height):
+            spriteByte = self.memory[self.I + row]
+            for col in range(8):
+                spritePix = spriteByte & (0x80 >> col)
+                screenPix = pyxel.pget(xPos + col, yPos + row)
+
+                if spritePix:
+                    if screenPix == SCREEN_COLOR_ON:
+                        self.V[0xF] = 1
+                    # Simulate XOR logic with this crap (since we don't have access to raw pixel data)
+                    currentScreenPixel = pyxel.pget(xPos + col, yPos + row)
+                    if currentScreenPixel == SCREEN_COLOR_ON:
+                        pyxel.pset(xPos + col, yPos + row, SCREEN_COLOR_OFF)
+                    else:
+                        pyxel.pset(xPos + col, yPos + row, SCREEN_COLOR_ON)
+
+    def op_skip_eq(self, inst):
+        vx = (inst & 0x0F00) >> 8
+        if self.V[vx] == inst & 0x0FF:
+            #print("inst: if VX == NN skip 1 instruction")
+            self.PC = self.PC + 2
+
+    def op_skip_not_eq(self, inst):
+        vx = (inst & 0x0F00) >> 8
+        if self.V[vx] != inst & 0x0FF:
+            #print("inst: if VX != NN skip 1 instruction")
+            self.PC = self.PC + 2
+
+    def op_skip_eq_vy(self, inst):
+        vx = (inst & 0x0F00) >> 8
+        vy = (inst & 0x00F0) >> 4
+        if self.V[vx] == self.V[vy]:
+            #print("inst: if VX == VY skip 1 instruction")
+            self.PC = self.PC + 2
+
+    def op_set_vx(self, inst):
+        vx = (inst & 0x0F00) >> 8
+        self.V[vx] = inst & 0x00FF
+        #print("inst: set register VX to the value NN")
+
     def decode_and_execute(self, inst):
         inst_category = inst & 0xF000
-        if inst_category == 0x0000:
-            if inst == 0x00E0:
-                # clear screen
-                #print("inst: clear screen")
-                pyxel.cls(SCREEN_COLOR_OFF)
-            elif inst == 0x00EE:
-                #print("inst: return from sub")
-                self.PC = self.pop()
-        elif inst_category == 0x1000:
-            ##print("inst: jump")
-            self.PC = inst & 0x0FFF
-        elif inst_category == 0x2000:
-            #print("inst: call subroutine")
-            self.push(self.PC)
-            self.PC = inst & 0xFFF
-        elif inst_category == 0x3000:
-            vx = (inst & 0x0F00) >> 8
-            if self.V[vx] == inst & 0x0FF:
-                #print("inst: if VX == NN skip 1 instruction")
-                self.PC = self.PC + 2
-        elif inst_category == 0x4000:
-            vx = (inst & 0x0F00) >> 8
-            if self.V[vx] != inst & 0x0FF:
-                #print("inst: if VX != NN skip 1 instruction")
-                self.PC = self.PC + 2
-        elif inst_category == 0x5000:
-            vx = (inst & 0x0F00) >> 8
-            vy = (inst & 0x00F0) >> 4
-            if self.V[vx] == self.V[vy]:
-                #print("inst: if VX == VY skip 1 instruction")
-                self.PC = self.PC + 2
-        elif inst_category == 0x6000:
-            vx = (inst & 0x0F00) >> 8
-            self.V[vx] = inst & 0x00FF
-            #print("inst: set register VX to the value NN")
-        elif inst_category == 0x7000:
+
+        # Check if instruction exists in DFA.
+        # Remove '0x' prefix.
+        # if inst_category == 0xD000:
+        #     pdb.set_trace()
+        #try:
+            # Do hex with padding.
+        inst_hex = "{:04x}".format(inst).upper()
+        assert len(inst_hex) == 4, "we don't have a proper instruction"
+        nxt = self.inst_dfa_tree.get(inst_hex[0])
+        if nxt:
+            nesting = 1
+            while True:
+                # We found our op to dispatch.
+                if nesting == 4:
+                    nxt(inst)
+                    # if we got here instruction should have been handled so return.
+                    return
+                if 'N' in nxt:
+                    #print('n found')
+                    nxt = nxt['N']
+                elif 'X' in nxt:
+                    #print('x found')
+                    nxt = nxt['X']
+                elif 'Y' in nxt:
+                    #print('y found')
+                    nxt = nxt['Y']
+                elif inst_hex[nesting] in nxt:
+                    #print('literal found')
+                    nxt = nxt[inst_hex[nesting]]
+                nesting +=1
+        #except BaseException as e:
+        #    pdb.set_trace()
+
+        # if inst_category == 0x0000:
+        #     if inst == 0x00E0:
+        #         assert False, "should not longer call this"
+        #         # clear screen
+        #         #print("inst: clear screen")
+        #         pyxel.cls(SCREEN_COLOR_OFF)
+        #     elif inst == 0x00EE:
+        #         assert False, "should not longer call this"
+        #         #print("inst: return from sub")
+        #         self.PC = self.pop()
+        # elif inst_category == 0x1000:
+        #     ##print("inst: jump")
+        #     assert False, "should not longer call this"
+        #     self.PC = inst & 0x0FFF
+        # if inst_category == 0x2000:
+        #     #print("inst: call subroutine")
+        #     self.push(self.PC)
+        #     self.PC = inst & 0xFFF
+        # if inst_category == 0x3000:
+        #     vx = (inst & 0x0F00) >> 8
+        #     if self.V[vx] == inst & 0x0FF:
+        #         #print("inst: if VX == NN skip 1 instruction")
+        #         self.PC = self.PC + 2
+        # if inst_category == 0x4000:
+        #     vx = (inst & 0x0F00) >> 8
+        #     if self.V[vx] != inst & 0x0FF:
+        #         #print("inst: if VX != NN skip 1 instruction")
+        #         self.PC = self.PC + 2
+        # if inst_category == 0x5000:
+        #     vx = (inst & 0x0F00) >> 8
+        #     vy = (inst & 0x00F0) >> 4
+        #     if self.V[vx] == self.V[vy]:
+        #         #print("inst: if VX == VY skip 1 instruction")
+        #         self.PC = self.PC + 2
+        # if inst_category == 0x6000:
+        #     vx = (inst & 0x0F00) >> 8
+        #     self.V[vx] = inst & 0x00FF
+        #     #print("inst: set register VX to the value NN")
+        if inst_category == 0x7000:
             vx = (inst & 0x0F00) >> 8
             #print("inst: add value to register VX")
             self.V[vx] = (self.V[vx] + inst) & 0x00FF
@@ -388,6 +537,7 @@ class Chip8VM:
             vx = (inst & 0xF00) >> 8
             self.V[vx] = random.randint(0, 255) & (inst & 0x0FF)
         elif inst_category == 0xD000:
+            assert False, "Should not be called anymore."
             #print("inst: display/draw")
             vx = (inst & 0xF00) >> 8
             vy = (inst & 0xF0) >> 4
