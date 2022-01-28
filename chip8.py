@@ -50,6 +50,27 @@ VM_MEMORY_SIZE = 4096
 # |A|0|B|F|    |Z|X|C|V|
 # +-+-+-+-+    +-+-+-+-+
 
+KEYS_OF_INTEREST = [
+    pyxel.KEY_X,
+    pyxel.KEY_1,
+    pyxel.KEY_2,
+    pyxel.KEY_3,
+    pyxel.KEY_Q,
+    pyxel.KEY_W,
+    pyxel.KEY_E,
+    pyxel.KEY_A,
+    pyxel.KEY_S,
+    pyxel.KEY_D,
+    pyxel.KEY_Z,
+    pyxel.KEY_C,
+    pyxel.KEY_4,
+    pyxel.KEY_R,
+    pyxel.KEY_F,
+    pyxel.KEY_V,
+    pyxel.KEY_X
+]
+
+FONT_BYTE_SIZE = 5
 FONT_DATA = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, # 0
     0x20, 0x60, 0x20, 0x20, 0x70, # 1
@@ -68,8 +89,6 @@ FONT_DATA = [
     0xF0, 0x80, 0xF0, 0x80, 0xF0, # E
     0xF0, 0x80, 0xF0, 0x80, 0x80  # F
 ]
-
-FONT_BYTE_SIZE = 5
 
 class Chip8VM:
     def __init__(self):
@@ -180,88 +199,24 @@ class Chip8VM:
     def load_rom(self, rom_file):
         with io.open(rom_file, 'rb') as f:
             rom_data = f.read()
-            counter = 0
-            for b in rom_data:
-                self.memory[ROM_STARTING_ADDRESS + counter] = b
-                counter +=1
+            for i, b in enumerate(rom_data):
+                self.memory[ROM_STARTING_ADDRESS + i] = b
 
     # Performs one cycle.
     def tick(self):
-        self.check_keys()
-
+        self.scan_keys()
         inst = self.fetch()
         self.decode_and_execute(inst)
-
         self.check_stalled()
 
-    def check_keys(self):
-        # record button pressed keystates
-        if pyxel.btnp(pyxel.KEY_X):
-            self.keypad[0] = 1
-        if pyxel.btnp(pyxel.KEY_1):
-            self.keypad[1] = 1
-        if pyxel.btnp(pyxel.KEY_2):
-            self.keypad[2] = 1
-        if pyxel.btnp(pyxel.KEY_3):
-            self.keypad[3] = 1
-        if pyxel.btnp(pyxel.KEY_Q):
-            self.keypad[4] = 1
-        if pyxel.btnp(pyxel.KEY_W):
-            self.keypad[5] = 1
-        if pyxel.btnp(pyxel.KEY_E):
-            self.keypad[6] = 1
-        if pyxel.btnp(pyxel.KEY_A):
-            self.keypad[7] = 1
-        if pyxel.btnp(pyxel.KEY_S):
-            self.keypad[8] = 1
-        if pyxel.btnp(pyxel.KEY_D):
-            self.keypad[9] = 1
-        if pyxel.btnp(pyxel.KEY_Z):
-            self.keypad[0xA] = 1
-        if pyxel.btnp(pyxel.KEY_C):
-            self.keypad[0xB] = 1
-        if pyxel.btnp(pyxel.KEY_4):
-            self.keypad[0xC] = 1
-        if pyxel.btnp(pyxel.KEY_R):
-            self.keypad[0xD] = 1
-        if pyxel.btnp(pyxel.KEY_F):
-            self.keypad[0xE] = 1
-        if pyxel.btnp(pyxel.KEY_V):
-            self.keypad[0xF] = 1
-        
-        # record button released keystates
-        if pyxel.btnr(pyxel.KEY_X):
-            self.keypad[0] = 0
-        if pyxel.btnr(pyxel.KEY_1):
-            self.keypad[1] = 0
-        if pyxel.btnr(pyxel.KEY_2):
-            self.keypad[2] = 0
-        if pyxel.btnr(pyxel.KEY_3):
-            self.keypad[3] = 0
-        if pyxel.btnr(pyxel.KEY_Q):
-            self.keypad[4] = 0
-        if pyxel.btnr(pyxel.KEY_W):
-            self.keypad[5] = 0
-        if pyxel.btnr(pyxel.KEY_E):
-            self.keypad[6] = 0
-        if pyxel.btnr(pyxel.KEY_A):
-            self.keypad[7] = 0
-        if pyxel.btnr(pyxel.KEY_S):
-            self.keypad[8] = 0
-        if pyxel.btnr(pyxel.KEY_D):
-            self.keypad[9] = 0
-        if pyxel.btnr(pyxel.KEY_Z):
-            self.keypad[0xA] = 0
-        if pyxel.btnr(pyxel.KEY_C):
-            self.keypad[0xB] = 0
-        if pyxel.btnr(pyxel.KEY_4):
-            self.keypad[0xC] = 0
-        if pyxel.btnr(pyxel.KEY_R):
-            self.keypad[0xD] = 0
-        if pyxel.btnr(pyxel.KEY_F):
-            self.keypad[0xE] = 0
-        if pyxel.btnr(pyxel.KEY_V):
-            self.keypad[0xF] = 0
+    def scan_keys(self):
+        for i, k in enumerate(KEYS_OF_INTEREST):
+            # record button pressed key states
+            if pyxel.btnp(k):
+                self.keypad[i] = 1
+            # record button released key states
+            if pyxel.btnr(k):
+                self.keypad[i] = 0
 
     def check_stalled(self):
         if self.opcode_repeat_count > MAX_STALLED_VM_CYCLES:
@@ -306,35 +261,48 @@ class Chip8VM:
             self.push(self.PC)
             self.PC = inst & 0xFFF
         elif inst_category == 0x3000:
-            if self.V[(inst & 0x0F00) >> 8] == inst & 0x0FF:
+            vx = (inst & 0x0F00) >> 8
+            if self.V[vx] == inst & 0x0FF:
                 #print("inst: if VX == NN skip 1 instruction")
                 self.PC = self.PC + 2
         elif inst_category == 0x4000:
-            if self.V[(inst & 0x0F00) >> 8] != inst & 0x0FF:
+            vx = (inst & 0x0F00) >> 8
+            if self.V[vx] != inst & 0x0FF:
                 #print("inst: if VX != NN skip 1 instruction")
                 self.PC = self.PC + 2
         elif inst_category == 0x5000:
-            if self.V[(inst & 0x0F00) >> 8] == self.V[(inst & 0x00F0) >> 4]:
+            vx = (inst & 0x0F00) >> 8
+            vy = (inst & 0x00F0) >> 4
+            if self.V[vx] == self.V[vy]:
                 #print("inst: if VX == VY skip 1 instruction")
                 self.PC = self.PC + 2
         elif inst_category == 0x6000:
-            self.V[(inst & 0x0F00) >> 8] = inst & 0x00FF
+            vx = (inst & 0x0F00) >> 8
+            self.V[vx] = inst & 0x00FF
             #print("inst: set register VX to the value NN")
         elif inst_category == 0x7000:
             vx = (inst & 0x0F00) >> 8
             #print("inst: add value to register VX")
-            self.V[vx] = self.V[vx] + inst & 0x00FF
+            self.V[vx] = (self.V[vx] + inst) & 0x00FF
         elif inst_category == 0x8000:
             #print("inst: set/or/and/xor/add arithmetic")
             inst_subcategory = inst & 0x000F
             if inst_subcategory == 0:
-                self.V[(inst & 0x0F00) >> 8] = self.V[(inst & 0x00F0) >> 4]
+                vx = (inst & 0x0F00) >> 8
+                vy = (inst & 0x00F0) >> 4
+                self.V[vx] = self.V[vy]
             elif inst_subcategory == 1:
-                self.V[(inst & 0x0F00) >> 8] = self.V[(inst & 0x0F00) >> 8] | self.V[(inst & 0x00F0) >> 4]
+                vx = (inst & 0x0F00) >> 8
+                vy = (inst & 0x00F0) >> 4
+                self.V[vx] = self.V[vx] | self.V[vy]
             elif inst_subcategory == 2:
-                self.V[(inst & 0x0F00) >> 8] = self.V[(inst & 0x0F00) >> 8] & self.V[(inst & 0x00F0) >> 4]
+                vx = (inst & 0x0F00) >> 8
+                vy = (inst & 0x00F0) >> 4
+                self.V[vx] = self.V[vx] & self.V[vy]
             elif inst_subcategory == 3:
-                self.V[(inst & 0x0F00) >> 8] = self.V[(inst & 0x0F00) >> 8] ^ self.V[(inst & 0x00F0) >> 4]
+                vx = (inst & 0x0F00) >> 8
+                vy = (inst & 0x00F0) >> 4
+                self.V[vx] = self.V[vx] ^ self.V[vy]
             elif inst_subcategory == 4:
                 vx = (inst & 0x0F00) >> 8
                 vy = (inst & 0x00F0) >> 4
@@ -402,7 +370,9 @@ class Chip8VM:
                 self.V[vx] = self.V[vx] << 1
                 
         elif inst_category == 0x9000:
-            if self.V[(inst & 0x0F00) >> 8] != self.V[(inst & 0x00F0) >> 4]:
+            vx = (inst & 0x0F00) >> 8
+            vy = (inst & 0x00F0) >> 4
+            if self.V[vx] != self.V[vy]:
                 #print("inst: if VX != VY skip 1 instruction")
                 self.PC = self.PC + 2
         elif inst_category == 0xA000:
@@ -413,7 +383,8 @@ class Chip8VM:
             self.PC = self.V[0x0] + (inst & 0x0FFF)
         elif inst_category == 0xC000:
             #print("inst: random")
-            self.V[(inst & 0x0F00) >> 8] = random.randint(0, 255) & (inst & 0x0FF)
+            vx = (inst & 0xF00) >> 8
+            self.V[vx] = random.randint(0, 255) & (inst & 0x0FF)
         elif inst_category == 0xD000:
             #print("inst: display/draw")
             vx = (inst & 0xF00) >> 8
@@ -534,4 +505,9 @@ class Chip8VM:
         else:
             print("instruction not handled (" + hex(inst) + ")")
 
-Chip8VM()
+def main():
+    Chip8VM()
+
+# Special bootstrapping for pyxel applications hence the: <run_path>
+if __name__ == '<run_path>':
+    main()
