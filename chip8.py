@@ -170,16 +170,11 @@ class Chip8VM:
         pyxel.rectb(CHIP8_X_OFFSET-2, CHIP8_Y_OFFSET-2, 68, 36, 11)
         pyxel.rect(0, 85, SCREEN_WIDTH, SCREEN_HEIGHT, 0)
 
-        # for i, c in enumerate(BANNER_MSG):
-        #     char_offset = i + 1
-        #     pyxel.text(self.banner_x + (char_offset * 4),
-        #         SCREEN_HEIGHT-8 + math.sin(pyxel.frame_count % char_offset/50) * 1.4, c,
-        #         int((math.sin(pyxel.frame_count/100) * 20)) % 16)
-
-        pyxel.text(2, 88, "ball Y (v7)=" + str(self.V[0x7]), 7)
-        #pyxel.text(self.banner_x+1, SCREEN_HEIGHT-8, "Chip 8 - Pyxelized - by deckarep - 2022", 0)
-        # TODO: if cls or draw OP occured, we know to blit the video ram to the screen.
-        # Currently, we're drawing to the screen directly, but we should be blitting once and awhile only if needed.
+        for i, c in enumerate(BANNER_MSG):
+            char_offset = i + 1
+            pyxel.text(self.banner_x + (char_offset * 4),
+                SCREEN_HEIGHT-8 + math.sin(pyxel.frame_count % char_offset/50) * 1.4, c,
+                int((math.sin(pyxel.frame_count/100) * 20)) % 16)
 
     def install_fonts(self):
         for i, b in enumerate(FONT_DATA):
@@ -529,8 +524,6 @@ class Chip8VM:
             self.V[vx] = self.V[vx] - self.V[vy]
 
     def op_8XY6(self, inst):
-        #print("inst: shift right - ambiguous")
-        #pdb.set_trace()
         vx = (inst & 0x0F00) >> 8
         vy = (inst & 0x00F0) >> 4
 
@@ -541,7 +534,6 @@ class Chip8VM:
         self.V[vx] = self.V[vx] >> 1
 
     def op_8XY7(self, inst):
-        #pdb.set_trace()
         vx = (inst & 0x0F00) >> 8
         vy = (inst & 0x00F0) >> 4
 
@@ -559,7 +551,6 @@ class Chip8VM:
         self.V[vx] = num
 
     def op_8XYE(self, inst):
-        #print("inst: shift left - ambiguous")
         vx = (inst & 0x0F00) >> 8
         # vy = (inst & 0x00F0) >> 4 (vy is ignored here)
 
@@ -573,19 +564,15 @@ class Chip8VM:
         vx = (inst & 0x0F00) >> 8
         vy = (inst & 0x00F0) >> 4
         if self.V[vx] != self.V[vy]:
-            #print("inst: if VX != VY skip 1 instruction")
             self.PC = self.PC + 2
 
     def op_ANNN(self, inst):
         self.I = inst & 0x0FFF
-        #print("inst: set register I to the value NNN")
 
     def op_BNNN(self, inst):
-        #print("inst: jump to offset: ambiguous instruction utilizing primary implementation")
         self.PC = self.V[0x0] + (inst & 0x0FFF)
 
     def op_CXNN(self, inst):
-        #print("inst: random")
         vx = (inst & 0xF00) >> 8
         self.V[vx] = random.randint(0, 255) & (inst & 0x0FF)
 
@@ -606,7 +593,6 @@ class Chip8VM:
         self.V[vx] = self.delay
 
     def op_FX0A(self, inst):
-        #pdb.set_trace()
         vx = (inst & 0x0F00) >> 8
         
         wait_for_key = True
